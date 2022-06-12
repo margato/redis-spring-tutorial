@@ -4,13 +4,6 @@ services:
   redis:
     container_name: redis
     platform: linux/amd64
-    deploy:
-      resources:
-        reservations:
-          memory: 256M
-        limits:
-          cpus: 0.5
-          memory: 256M
     image: redis:7.0.0
     command: redis-server
     ports:
@@ -19,13 +12,6 @@ services:
     container_name: news-app
     restart: always
     platform: linux/amd64
-    deploy:
-      resources:
-        reservations:
-          memory: 256M
-        limits:
-          cpus: 0.5
-          memory: 256M
     depends_on:
       - redis
     image: osvaldomargato/redis-tutorial:1.0.0

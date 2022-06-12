@@ -3,6 +3,11 @@
 - [Redis com Spring Boot](#redis-com-spring-boot)
 - [Requisitos](#requisitos)
     * [O que é Redis?](#o-que---redis-)
+- [Redis na prática](#redis-na-pr-tica)
+    * [Criando as classes do projeto](#criando-as-classes-do-projeto)
+        + [News](#news)
+        + [NewsController](#newscontroller)
+        + [NewsRepository](#newsrepository)
     * [Como integrar o Redis com Spring](#como-integrar-o-redis-com-spring)
         + [Iniciar instância Redis local](#iniciar-inst-ncia-redis-local)
         + [Parâmetros de acesso](#par-metros-de-acesso)
@@ -23,11 +28,95 @@ Redis provê escrita e leitura atômica de estruturas de dados como listas, conj
 execução de script em Lua, políticas de limpeza de cache, transações, persistência e alta disponibilidade com Redis
 Sentinel e particionamento automático com Redis Cluster.
 
+# Redis na prática
+Para praticar o Redis, vamos criar uma aplicação Spring Boot, utilizando [Spring Initializr](https://start.spring.io/),
+conforme a imagem abaixo:
+![Spring Initializr](./imgs/spring_initializr.jpeg)
+
+
+## Criando as classes do projeto
+Para esse tutorial, iremos exemplificar com um método de listagem de notícias para uma página principal em que o conteúdo é estático e deve ser reconstruído a cada 2 minutos.
+Como o conteúdo é estático, não precisamos obter as mesmas notícias para casa usuário. Se fizéssemos isso, poderíamos onerar o banco de dados desnecessariamente, uma vez que podemos salvar esses dados em cache.
+
+Nossa estrutura de classes ficará:
+```
+├── controller
+│   └── NewsController.java
+├── entities
+│   └── News.java
+├── repository
+│   └── NewsRepository.java
+├── RedisTutorialApplication.java
+```
+
+- A classe `News` é uma classe modelo de como uma notícia é estruturada.
+- A classe `NewsRepository` é a classe que faz a obtenção dos dados das notícias na fonte lenta.
+- A classe `NewsController` ficará responsável por expor os dados por HTTP.
+- A classe `RedisTutorialApplication` é a classe principal que executará o framework.
+
+### News
+```java
+@Getter
+@Builder
+@Jacksonized
+public class News {
+    private final String title;
+    private final String content;
+    private final String author;
+}
+```
+
+### NewsController
+```java
+@RestController
+@RequestMapping("/news")
+@RequiredArgsConstructor
+public class NewsController {
+
+    private final NewsRepository newsRepository;
+
+    @GetMapping
+    public List<News> findAll() {
+        return newsRepository.findAll();
+    }
+
+}
+```
+### NewsRepository
+Para simular uma consulta lenta, teremos um `Thread.sleep()` de 4 segundos no método `findAll()`.
+
+Adicionaremos um banco de dados fake apenas para simular a obtenção de dados, com a biblioteca Faker.
+
+```java
+@Component
+public class NewsRepository {
+private final Faker FAKER = new Faker();
+private final List<News> DATABASE = new ArrayList<>();
+private static final int NEWS_DB_SIZE = 100;
+
+    @PostConstruct
+    public void setup() {
+        for (int index = 0; index < NEWS_DB_SIZE; index++) {
+            DATABASE.add(News.builder()
+                    .author(FAKER.name().fullName())
+                    .title(FAKER.lorem().characters(10, 20))
+                    .content(FAKER.lorem().characters(1000, 10_000))
+                    .build());
+        }
+    }
+
+    public List<News> findAll() {
+        try {
+            Thread.sleep(4000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        return DATABASE;
+    }
+}
+```
 ## Como integrar o Redis com Spring
-
-Para aplicações que utilizam Spring como framework, é possível integrar com o Redis com facilidade através de bibliotecas criadas para o ecossistema.
-
-Para iniciar, adicione a dependência **spring-data-redis** na `pom.xml`:
+No arquivo `pom.xml`, é possível integrar com o Redis através de bibliotecas criadas para o ecossistema Spring Boot:
 
 ```xml
 <dependency>
@@ -101,10 +190,7 @@ cache.ttl.ms=120000
 Com essa configuração, o cache será limpo a cada 2 minutos.
 
 ### Ativar cache em método
-Para esse tutorial, iremos exemplificar com um método de listagem de notícias para uma página principal em que o conteúdo é estático e deve ser reconstruído a cada 2 minutos.
-Como o conteúdo é estático, não precisamos obter as mesmas notícias para casa usuário. Se fizéssemos isso, poderíamos onerar o banco de dados desnecessariamente, uma vez que podemos salvar esses dados em cache.
-
-Na classe NewsRepository, simulamos uma lentidão de busca no banco de dados com `Thread.sleep(4000)` que faz com que o endpoint responda no mínimo com 4 segundos de tempo de resposta.
+Como visto anteriormente, na classe NewsRepository, simulamos uma lentidão de busca no banco de dados com `Thread.sleep(4000)` que faz com que o endpoint responda no mínimo com 4 segundos de tempo de resposta.
 
 ```java
 public class NewsRepository {
@@ -117,20 +203,6 @@ public class NewsRepository {
         }
         
         return DATABASE;
-    }
-}
-```
-
-Iniciamos a lista de notícias com a biblioteca Faker:
-```java
-@PostConstruct
-public void setup() {
-    for (int index = 0; index < NEWS_DB_SIZE; index++) {
-        DATABASE.add(News.builder()
-            .author(FAKER.name().fullName())
-            .title(FAKER.lorem().characters(10, 20))
-            .content(FAKER.lorem().characters(1000, 10_000))
-            .build());
     }
 }
 ```
@@ -159,16 +231,17 @@ $ curl -o /dev/null -s -w 'Total: %{time_total}s\n' localhost:8080/news
 Total: 0.093111s
 ```
 Perceba que na primeira execução, não existia o valor em memória cache, então a aplicação precisou obter o valor da fonte original, que em nosso caso é lenta.
-Nas próximas execuções, já obteve o valor da memória quente Redis, reduzindo drasticamente o tempo de resposta.
+Nas próximas execuções, já obteve o valor da memória Redis, reduzindo drasticamente o tempo de resposta.
 Conseguimos reduzir de 4150 ms para 110ms, redução de aproximadamente 38 vezes do tempo de resposta.
 
+O que de fato está acontecendo, é que a aplicação está validando se o dado existe no Redis, e se existir, retorna imediatamente. Caso não exista, ele obterá da fonte original lenta e salvará no Redis para processamentos futuros.
 
 
 
 
 ## Rodando o tutorial
 
-Rode a aplicação e a instância Redis com o comando e teste o que foi comentado nesse tutorial:
+Rode a aplicação e a instância Redis com o comando e teste em sua máquina o que foi comentado nesse tutorial:
 
 ```bash
 $ docker-compose up -d
