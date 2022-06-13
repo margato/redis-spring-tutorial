@@ -17,7 +17,7 @@
 
 # Requisitos
 - Conhecimento básico em Spring Boot e Java
-- Docker instalado na máquina
+- Docker instalado na máquina (Veja como fazer o download: https://docs.docker.com/get-docker/)
 
 ## O que é Redis?
 
